@@ -3,14 +3,11 @@
 {% block content %}
 <h1 class="mb-4">База данных</h1>
 {% if student %}
-<div class="alert alert-info" role="alert">
-    <h4>Результаты экзаменов для студента {{ student.id }}:</h4>
-    <ul>
-        {% for result in student.performance %}
-        <li>Курс: {{ result.course.course_name }}, Оценка: {{ result.grade_performance }}</li>
-        {% endfor %}
-    </ul>
-</div>
+    <div class="table-responsive">
+        {{ student | safe }}
+    </div>
+{% else %}
+    <p>Данные о студенте не найдены.</p>
 {% endif %}
 <form action="/get_student_performance" method="post" class="mb-4">
     <div class="form-group">

@@ -6,6 +6,18 @@
 <div class="alert alert-success" role="alert">
   ID студентов: {{ student_ids | join(', ') }}
 </div>
+{% if predictions %}
+<div class="alert alert-info" role="alert">
+  {% for sid, preds in predictions.items() %}
+    <p>Студент {{ sid }}:</p>
+    <ul>
+      {% for subject, semester, grade in preds %}
+        <li>{{ subject }} (Семестр {{ semester }}): {{ grade }}</li>
+      {% endfor %}
+    </ul>
+  {% endfor %}
+</div>
+{% endif %}
 {% endif %}
 <form action="/submit_student_id" method="post" class="mb-4">
     <div class="form-group">

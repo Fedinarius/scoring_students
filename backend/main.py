@@ -2,19 +2,26 @@ from fastapi import FastAPI, Depends, HTTPException, Request, Form, UploadFile, 
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
-from .db_config import SessionLocal, engine
-from .models import Base, Student, Course, Performance, StudentPerformance
+from db_config import SessionLocal, engine
+from models import Base, Student, Course, Performance, StudentPerformance, StudentPerformanceRelease
 from pydantic import BaseModel
+import pandas as pd
 import shutil
 import random
 import re
+import joblib
+import numpy as np
+# Загрузка модели
+loaded_model = joblib.load('C:/Users/fedya/Desktop/Scoring2/backend/catboost_model.pkl')
+
+
 
 
 app = FastAPI()
 
-templates = Jinja2Templates(directory="backend/templates")
+templates = Jinja2Templates(directory="C:/Users/fedya/Desktop/Scoring2/backend/templates")
 
-app.mount("/static", StaticFiles(directory="backend/static"), name="static")
+app.mount("/static", StaticFiles(directory="C:/Users/fedya/Desktop/Scoring2/backend/static"), name="static")
 
 Base.metadata.create_all(bind=engine)
 
@@ -56,10 +63,24 @@ class StudentPerformanceCreate(BaseModel):
     semester_number: int
 
 
+class StudentPerformanceReleaseCreate(BaseModel):
+    student_id: int
+    preparation_level: str
+    study_group: str
+    specialization: str
+    academic_year: str
+    semester: str
+    course: str
+    grade_without_resits: int
+    grade_performance: int
+    start_year: int
+    start_semester_year: int
+    semester_number: int
+
+
 def parse_student_ids(text: str):
-    # Разделяем строки по ';', ',', ' ' и '\n'
     student_ids = re.split(r'[;, \n]+', text)
-    # Убираем пустые строки
+    
     student_ids = [id for id in student_ids if id]
     return student_ids
 
@@ -96,7 +117,7 @@ def create_course(course_name: str = Form(...), db: Session = Depends(get_db)):
 def create_performance(file: UploadFile = File(...), db: Session = Depends(get_db)):
     with open(f"backend/uploads/{file.filename}", "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    # Здесь вы можете добавить логику обработки файла
+    
     return {"filename": file.filename}
 
 @app.post("/students_performance/")
@@ -186,6 +207,42 @@ def delete_student_performance(student_performance_id: int, db: Session = Depend
     return {"message": "Student performance deleted"}
 
 
+
+"""
+@app.post("/get_student_performance")
+async def get_student_performance(request: Request, student_id: int = Form(...), db: Session = Depends(get_db)):
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if student:
+        performance = db.query(Performance).filter(Performance.student_id == student_id).all()
+        student.performance = performance
+        for p in student.performance:
+            p.course = db.query(Course).filter(Course.id == p.course_id).first()
+    return {"student": {"id": student.id, "performance": [{"course": {"course_name": p.course.course_name}, "grade_performance": p.grade_performance} for p in student.performance]}}
+"""
+
+@app.post("/get_student_performance")
+async def get_student_performance(request: Request, student_id: int = Form(...), db: Session = Depends(get_db)):
+    student = db.query(StudentPerformanceRelease).filter(StudentPerformanceRelease.student_id == student_id).all()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    df = pd.DataFrame([{
+        "Номер ЛД": s.student_id,
+        "Уровень подготовки": s.preparation_level,
+        "Учебная группа": s.study_group,
+        "Специальность/направление": s.specialization,
+        "Учебный год": s.academic_year,
+        "Полугодие": s.semester,
+        "Дисциплина": s.course,
+        "Оценка (без пересдач)": s.grade_without_resits,
+        "Оценка (успеваемость)": s.grade_performance,
+        "Год начала обучения": s.start_year,
+        "Год начала семестра": s.start_semester_year,
+        "Номер семестра": s.semester_number
+    } for s in student])
+    
+    return templates.TemplateResponse("database.html", {"request": request, "title": "База данных", "student": df.to_html(classes="table table-striped table-bordered table-hover text-white", justify="left")})
+
+"""
 @app.post("/get_student_performance")
 def get_student_performance(request: Request, student_id: int = Form(...), db: Session = Depends(get_db)):
     student = db.query(Student).filter(Student.id == student_id).first()
@@ -195,29 +252,212 @@ def get_student_performance(request: Request, student_id: int = Form(...), db: S
         for p in student.performance:
             p.course = db.query(Course).filter(Course.id == p.course_id).first()
     return templates.TemplateResponse("database.html", {"request": request, "title": "База данных", "student": student})
-
+"""
 
 #Для теста -------------------------------------------------------------
+
+
+
 """
 @app.post("/submit_student_id")
-def submit_student_id(request: Request):
-    random_number = random.randint(1, 100)
-    return templates.TemplateResponse("index.html", {"request": request, "title": "Главная", "number": random_number})
-
-@app.post("/submit_file")
-def submit_file(request: Request, file: UploadFile = File(...)):
-    random_number = random.randint(1, 100)
-    return templates.TemplateResponse("index.html", {"request": request, "title": "Главная", "number": random_number})
-"""
-
-@app.post("/submit_student_id")
-def submit_student_id(request: Request, student_id: str = Form(...)):
+async def submit_student_id(request: Request, student_id: str = Form(...)):
     student_ids = parse_student_ids(student_id)
     return templates.TemplateResponse("index.html", {"request": request, "title": "Главная", "student_ids": student_ids})
+"""
+"""
+@app.post("/submit_student_id")
+async def submit_student_id(request: Request, student_id: str = Form(...), db: Session = Depends(get_db)):
+    student_ids = parse_student_ids(student_id)
+    predictions = {}
+    
+    for sid in student_ids:
+        student = db.query(StudentPerformanceRelease).filter(StudentPerformanceRelease.student_id == sid).all()
+        if not student:
+            continue
+        
+        data = [{
+            "Номер ЛД": s.student_id,
+            "Уровень подготовки": s.preparation_level,
+            "Учебная группа": s.study_group,
+            "Специальность/направление": s.specialization,
+            "Учебный год": s.academic_year,
+            "Полугодие": s.semester,
+            "Дисциплина": s.course,
+            "Оценка (без пересдач)": s.grade_without_resits,
+            "Оценка (успеваемость)": s.grade_performance,
+            "Год начала обучения": s.start_year,
+            "Год начала семестра": s.start_semester_year,
+            "Номер семестра": s.semester_number
+        } for s in student]
+        
+        X_test = pd.DataFrame(data)
+        student_predictions = loaded_model.predict(X_test)
+        predictions[sid] = student_predictions.tolist()
+
+    if len(predictions) == 0:
+        raise HTTPException(status_code=404, detail="Student data not found")
+
+    return templates.TemplateResponse("index.html", {"request": request, "title": "Главная", "student_ids": student_ids, "predictions": predictions})
+"""
+
+@app.post("/submit_student_id")
+async def submit_student_id(request: Request, student_id: str = Form(...), db: Session = Depends(get_db)):
+    student_ids = parse_student_ids(student_id)
+    predictions = {}
+    
+    for sid in student_ids:
+        student = db.query(StudentPerformanceRelease).filter((StudentPerformanceRelease.student_id == sid) & (StudentPerformanceRelease.semester == 'II полугодие') & (StudentPerformanceRelease.academic_year == "2022 - 2023")).all()
+        if not student:
+            continue
+        print(student)
+        
+        data = []
+        subjects = []
+        semesters = []
+        for s in student:
+            data.append({
+                "Номер ЛД": s.student_id,
+                "Уровень подготовки": s.preparation_level,
+                "Учебная группа": s.study_group,
+                "Специальность/направление": s.specialization,
+                "Учебный год": s.academic_year,
+                "Полугодие": s.semester,
+                "Дисциплина": s.course,
+                "Оценка (без пересдач)": s.grade_without_resits,
+                "Оценка (успеваемость)": s.grade_performance,
+                "Год начала обучения": s.start_year,
+                "Год начала семестра": s.start_semester_year,
+                "Номер семестра": s.semester_number
+            })
+            subjects.append(s.course)
+            semesters.append(s.semester_number)
+
+        X_test = pd.DataFrame(data)
+        student_predictions = np.array(list(map(lambda x: x[0], loaded_model.predict(X_test))))
+        predictions[sid] = list(zip(subjects, semesters, student_predictions))
+
+    if len(predictions) == 0:
+        raise HTTPException(status_code=404, detail="Student data not found")
+
+    return templates.TemplateResponse("index.html", {"request": request, "title": "Главная", "student_ids": student_ids, "predictions": predictions})
+
+
+
+"""
+@app.post("/submit_file")
+async def submit_file(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    contents = await file.read()
+    contents = contents.decode('utf-8')
+    student_ids = parse_student_ids(contents)
+    predictions = {}
+
+    for sid in student_ids:
+        student = db.query(StudentPerformanceRelease).filter(StudentPerformanceRelease.student_id == sid).all()
+        if not student:
+            continue
+        
+        data = [{
+            "Номер ЛД": s.student_id,
+            "Уровень подготовки": s.preparation_level,
+            "Учебная группа": s.study_group,
+            "Специальность/направление": s.specialization,
+            "Учебный год": s.academic_year,
+            "Полугодие": s.semester,
+            "Дисциплина": s.course,
+            "Оценка (без пересдач)": s.grade_without_resits,
+            "Оценка (успеваемость)": s.grade_performance,
+            "Год начала обучения": s.start_year,
+            "Год начала семестра": s.start_semester_year,
+            "Номер семестра": s.semester_number
+        } for s in student]
+        
+        X_test = pd.DataFrame(data)
+        student_predictions = loaded_model.predict(X_test)
+        predictions[sid] = student_predictions.tolist()
+
+    if len(predictions) == 0:
+        raise HTTPException(status_code=404, detail="Student data not found")
+
+    return templates.TemplateResponse("index.html", {"request": request, "title": "Главная", "student_ids": student_ids, "predictions": predictions})
+
+"""
 
 @app.post("/submit_file")
-def submit_file(request: Request, file: UploadFile = File(...)):
-    contents = file.file.read().decode('utf-8')
+async def submit_file(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    contents = await file.read()
+    contents = contents.decode('utf-8')
+    student_ids = parse_student_ids(contents)
+    predictions = {}
+
+    for sid in student_ids:
+        student = db.query(StudentPerformanceRelease).filter((StudentPerformanceRelease.student_id == sid) & (StudentPerformanceRelease.semester == 'II полугодие') & (StudentPerformanceRelease.academic_year == "2022 - 2023")).all()
+        if not student:
+            continue
+        
+        data = []
+        subjects = []
+        semesters = []
+        for s in student:
+            data.append({
+                "Номер ЛД": s.student_id,
+                "Уровень подготовки": s.preparation_level,
+                "Учебная группа": s.study_group,
+                "Специальность/направление": s.specialization,
+                "Учебный год": s.academic_year,
+                "Полугодие": s.semester,
+                "Дисциплина": s.course,
+                "Оценка (без пересдач)": s.grade_without_resits,
+                "Оценка (успеваемость)": s.grade_performance,
+                "Год начала обучения": s.start_year,
+                "Год начала семестра": s.start_semester_year,
+                "Номер семестра": s.semester_number
+            })
+            subjects.append(s.course)
+            semesters.append(s.semester_number)
+
+        X_test = pd.DataFrame(data)
+        student_predictions = np.array(list(map(lambda x: x[0], loaded_model.predict(X_test))))
+        predictions[sid] = list(zip(subjects, semesters, student_predictions))
+
+    if len(predictions) == 0:
+        raise HTTPException(status_code=404, detail="Student data not found")
+
+    return templates.TemplateResponse("index.html", {"request": request, "title": "Главная", "student_ids": student_ids, "predictions": predictions})
+
+
+"""
+@app.post("/submit_file")
+async def submit_file(request: Request, file: UploadFile = File(...)):
+    contents = await file.read()
+    contents = contents.decode('utf-8')
     student_ids = parse_student_ids(contents)
     return templates.TemplateResponse("index.html", {"request": request, "title": "Главная", "student_ids": student_ids})
 
+"""
+# Новые эндпоинты для бота
+@app.post("/bot_submit_student_id")
+async def bot_submit_student_id(student_id: str = Form(...)):
+    student_ids = parse_student_ids(student_id)
+    return {"student_ids": student_ids}
+
+@app.post("/bot_submit_file")
+async def bot_submit_file(file: UploadFile = File(...)):
+    contents = await file.read()
+    contents = contents.decode('utf-8')
+    student_ids = parse_student_ids(contents)
+    return {"student_ids": student_ids}
+
+@app.post("/bot_get_student_performance")
+async def bot_get_student_performance(student_id: int = Form(...), db: Session = Depends(get_db)):
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if student:
+        performance = db.query(Performance).filter(Performance.student_id == student_id).all()
+        student.performance = performance
+        for p in student.performance:
+            p.course = db.query(Course).filter(Course.id == p.course_id).first()
+    return {"student": {"id": student.id, "performance": [{"course": {"course_name": p.course.course_name}, "grade_performance": p.grade_performance} for p in student.performance]}}
+
+
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

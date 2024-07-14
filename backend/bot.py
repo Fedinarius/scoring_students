@@ -5,7 +5,7 @@ from aiogram.utils import executor
 import aiohttp
 import re
 
-API_TOKEN = ''
+API_TOKEN = '7257443971:AAGKnyYb49fA-limjqJJqGldqzZMLX-aNC8'
 BASE_URL = 'http://localhost:8000'
 
 bot = Bot(token=API_TOKEN)
@@ -36,7 +36,7 @@ async def handle_file(message: types.Message):
 async def process_ids(message: types.Message):
     student_ids = parse_student_ids(message.text)
     async with aiohttp.ClientSession() as session:
-        async with session.post(f'{BASE_URL}/submit_student_id', data={'student_id': ','.join(student_ids)}) as response:
+        async with session.post(f'{BASE_URL}/bot_submit_student_id', data={'student_id': ','.join(student_ids)}) as response:
             if response.status == 200:
                 data = await response.json()
                 await message.reply(f"Полученные ID студентов: {data['student_ids']}")
@@ -55,7 +55,7 @@ async def process_file(message: types.Message):
         async with session.get(file_url) as file_response:
             content = await file_response.text()
             student_ids = parse_student_ids(content)
-            async with session.post(f'{BASE_URL}/submit_file', data={'file': content}) as response:
+            async with session.post(f'{BASE_URL}/bot_submit_file', data={'file': content}) as response:
                 if response.status == 200:
                     data = await response.json()
                     await message.reply(f"Полученные ID студентов: {data['student_ids']}")
@@ -66,7 +66,7 @@ async def process_file(message: types.Message):
 async def display_results(session, message, student_ids):
     results = []
     for student_id in student_ids:
-        async with session.post(f'{BASE_URL}/get_student_performance', data={'student_id': student_id}) as response:
+        async with session.post(f'{BASE_URL}/bot_get_student_performance', data={'student_id': student_id}) as response:
             if response.status == 200:
                 data = await response.json()
                 result = f"ID: {data['student']['id']}\n"
@@ -75,7 +75,7 @@ async def display_results(session, message, student_ids):
                 results.append(result)
             else:
                 results.append(f"Ошибка при получении данных для студента ID {student_id}")
-    await message.reply("\n\n".join(results), parse_mode=ParseMode.MARKDOWN)
+    await message.reply("\n\n".join(results))
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)

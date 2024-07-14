@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship
-from .db_config import Base
+from db_config import Base
 
 class Student(Base):
     __tablename__ = "students"
@@ -49,3 +49,20 @@ class StudentPerformance(Base):
 
     student = relationship("Student")
     course = relationship("Course")
+
+class StudentPerformanceRelease(Base):
+    __tablename__ = "students_performance_release"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, index=True)
+    preparation_level = Column(String)
+    study_group = Column(String)
+    specialization = Column(String)
+    academic_year = Column(String)
+    semester = Column(String)
+    course = Column(String)
+    grade_without_resits = Column(Integer)
+    grade_performance = Column(Integer)
+    start_year = Column(Integer)
+    start_semester_year = Column(Integer)
+    semester_number = Column(Integer)
